@@ -16,8 +16,34 @@ const host = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const clientBuildPath = resolve(projectRoot, "client", "dist");
 const adminBuildPath = resolve(projectRoot, "Admin", "dist");
+const corsOrigins = new Set(
+  (process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+);
 let isReady = false;
 let server;
+
+app.use((request, response, next) => {
+  const origin = request.get("Origin");
+  if (!origin || corsOrigins.size === 0) {
+    return next();
+  }
+  if (!corsOrigins.has(origin)) {
+    return response.status(403).json({ error: "Origin is not allowed." });
+  }
+
+  response.setHeader("Access-Control-Allow-Origin", origin);
+  response.setHeader("Access-Control-Allow-Credentials", "true");
+  response.vary("Origin");
+  if (request.method === "OPTIONS") {
+    response.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    return response.status(204).end();
+  }
+  next();
+});
 
 app.use((_request, response, next) => {
   if (!isReady) {
@@ -84,7 +110,7 @@ async function startServer() {
       cookie: {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000,
       },
     });
