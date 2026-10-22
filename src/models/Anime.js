@@ -27,6 +27,16 @@ const animeSchema = new mongoose.Schema(
       trim: true,
       maxlength: 2000,
     },
+    videoProvider: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    videoType: {
+      type: String,
+      enum: ["", "direct", "embed", "hls"],
+      default: "",
+    },
     episodes: {
       type: Number,
       min: 0,

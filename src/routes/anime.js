@@ -2,9 +2,18 @@ import { Router } from "express";
 import Anime from "../models/Anime.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 import mongoose from "mongoose";
+import { resolveVideoSource } from "../../../shared/videoSource.js";
 
 const router = Router();
 const allowedStatuses = ["ongoing", "completed", "upcoming"];
+
+function withLegacyVideoUrl(anime) {
+  if (!anime || anime.videoUrl) return anime;
+  return {
+    ...anime,
+    videoUrl: anime.embedUrl || anime.video || anime.video_url || "",
+  };
+}
 
 function validateAnime(body) {
   const {
@@ -26,6 +35,9 @@ function validateAnime(body) {
     : [];
   const coverUrl = typeof coverImage === "string" ? coverImage.trim() : "";
   const cleanVideoUrl = typeof videoUrl === "string" ? videoUrl.trim() : "";
+  if (videoUrl !== undefined && typeof videoUrl !== "string") {
+    return { error: "Video URL must be a string." };
+  }
   let coverHost = "";
 
   try {
@@ -43,17 +55,10 @@ function validateAnime(body) {
   if (cleanGenres.some((genre) => genre.length > 40)) {
     return { error: "Each genre must be 40 characters or fewer." };
   }
-  if (cleanVideoUrl) {
-    let parsedVideoUrl;
-    try {
-      parsedVideoUrl = new URL(cleanVideoUrl);
-    } catch {
-      return { error: "Enter a valid video URL." };
-    }
-    if (parsedVideoUrl.protocol !== "https:" || cleanVideoUrl.length > 2000) {
-      return { error: "Video links must use HTTPS and be 2,000 characters or fewer." };
-    }
-  }
+  const videoResult = resolveVideoSource(cleanVideoUrl, body?.videoType || "auto", {
+    requireHttps: process.env.NODE_ENV === "production",
+  });
+  if (videoResult.error) return { error: videoResult.error };
   if (
     !coverUrl.startsWith("https://") ||
     coverHost !== "res.cloudinary.com" ||
@@ -75,7 +80,9 @@ function validateAnime(body) {
       description: cleanDescription,
       genres: cleanGenres,
       coverImage: coverUrl,
-      videoUrl: cleanVideoUrl,
+      videoUrl: videoResult.source?.url || "",
+      videoProvider: videoResult.source?.provider || "",
+      videoType: videoResult.source?.type || "",
       episodes: parsedEpisodes,
       status: status || "upcoming",
     },
@@ -89,7 +96,7 @@ router.get("/", async (request, response, next) => {
       .limit(100)
       .lean();
 
-    response.json({ anime });
+    response.json({ anime: anime.map(withLegacyVideoUrl) });
   } catch (error) {
     next(error);
   }
@@ -98,7 +105,7 @@ router.get("/", async (request, response, next) => {
 router.get("/manage", requireAdmin, async (_request, response, next) => {
   try {
     const anime = await Anime.find().sort({ createdAt: -1 }).lean();
-    response.json({ anime });
+    response.json({ anime: anime.map(withLegacyVideoUrl) });
   } catch (error) {
     next(error);
   }
